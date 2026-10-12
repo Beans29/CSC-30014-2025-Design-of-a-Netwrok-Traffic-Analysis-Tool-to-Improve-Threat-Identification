@@ -4,12 +4,12 @@ A lightweight, passive network intrusion detection system with a live web dashbo
 
 Developed as my final year project for BSc (Hons) Computer Science (Cybersecurity) at Keele University.
 
-<!-- Add a screenshot of the dashboard here, e.g. ![Dashboard](docs/dashboard.png) -->
+<img width="418" height="219" alt="image" src="https://github.com/user-attachments/assets/9eac94d0-109a-4e34-bc91-8e26735b19d9" />
 
 ## Features
 
 - **Passive monitoring**: packets are only observed, never modified or injected.
-- **Rule-based detection** for common network attacks and risky behaviour (see below).
+- **Rule-based detection** for common network attacks and suspicious behaviour (see below).
 - **Host discovery**: tracks IP/MAC pairs and when each host was last seen.
 - **Asynchronous database writes**: a dedicated worker thread keeps packet processing fast.
 - **Live dashboard**: alert table, charts, host list, uptime and search, refreshing every 3 seconds.
@@ -173,7 +173,3 @@ This tool is intended for learning, research and defending networks you own or a
 ## Author
 
 Edward Baines, Keele University
-
-## License
-
-Add a licence here (e.g. MIT) and include a `LICENSE` file in the repo.
