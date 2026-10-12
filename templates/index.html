@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIDS Dashboard</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
+    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+    <style>
+        [data-bs-theme="dark"] body { background-color: #121212; color: #e0e0e0; }
+        [data-bs-theme="dark"] .card { background-color: #1e1e1e; border: 1px solid #333; }
+        [data-bs-theme="dark"] .card-header { background-color: #252525; border-bottom: 1px solid #333; }
+        [data-bs-theme="dark"] .table { color: #ccc; }
+        [data-bs-theme="dark"] #searchInput { background: #333; color: #fff; border: 1px solid #555; }
+        .card { margin-bottom: 20px; }
+        .card-header { font-weight: bold; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-5px); } /* UI Feedback for user interaction */
+
+        /* Badge styles for alert types */
+        .badge-critical { background-color: #dc3545; }
+        .badge-warning { background-color: #ffc107; color: #000; }
+        .badge-investigative { background-color: #0dcaf0; color: #000; }
+        .navbar-brand { font-weight: bold; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom border-secondary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="">NETWORK TRAFFIC MONITOR</a> <!-- Title -->
+            <div>
+                <i class="fas fa-sun text-light me-3" id="theme-toggle" style="cursor: pointer; font-size: 1.2rem;" title="Toggle Light/Dark Mode"></i>
+                <span class="navbar-text text-light" id="clock">--:--:--</span>
+            </div>
+        </div>
+    </nav>
+    <div class="container-fluid mt-4">
+        <!-- Top Metrics Row -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card stat-card text-center p-3">
+                    <h6 class="text-muted">System Uptime</h6>
+                    <h3 id="uptime" class="text-success">--</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card text-center p-3">
+                    <h6 class="text-muted">Connected Hosts</h6>
+                    <h3 id="host-count" class="text-info">0</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card text-center p-3">
+                    <h6 class="text-muted">Total Alerts</h6>
+                    <h3 id="total-alerts" class="text-warning">0</h3>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card text-center p-3">
+                    <h6 class="text-muted">Status</h6>
+                    <h3 class="text-success"><i class="fas fa-check-circle"></i> Active</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">Alert Types</div>
+                    <div class="card-body">
+                        <canvas id="alertChart" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">Top Connections</div>
+                    <div class="card-body">
+                        <canvas id="sourceChart" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">Protocols</div>
+                    <div class="card-body">
+                        <canvas id="protoChart" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Tables Row -->
+        <div class="row">
+            <!-- Recent Alerts -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-bell me-2"></i>Recent Alerts</span>
+                        <div>
+                            <input type="text" id="searchInput" class="form-control form-control-sm d-inline-block w-auto" placeholder="Search IP...">
+                            <button class="btn btn-sm btn-outline-light ms-2" onclick="exportCSV()"><i class="fas fa-download"></i></button>
+                            <span class="badge bg-secondary ms-2">Live</span>
+                        </div>
+                    </div>
+                    <div class="card-body p-0 table-responsive" style="max-height: 400px;">
+                        <table class="table table-hover table-dark mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Source</th>
+                                    <th>Destination</th>
+                                    <th>Type</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alerts-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connected Hosts -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-network-wired me-2"></i>Discovered Hosts</div>
+                    <div class="card-body p-0 table-responsive" style="max-height: 400px;">
+                        <table class="table table-hover table-dark mb-0">
+                            <thead>
+                                <tr>
+                                    <th>IP Address</th>
+                                    <th>MAC Address</th>
+                                    <th>Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hosts-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+// -------------------------------------------------------------
+//                  Chart.js Initialisation
+// -------------------------------------------------------------
+        let allAlerts = [];// Global array storing threat telemetry for client-side filtering
+
+        const ctxAlert = document.getElementById('alertChart').getContext('2d');
+        const alertChart = new Chart(ctxAlert, {            // Initialises the Severity Bar Chart
+            type: 'bar',
+            data: { labels: [], datasets: [{ label: 'Alerts', data: [], backgroundColor: '#dc3545' }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true, grid: { color: '#333' } }, x: { grid: { color: '#333' } } } }
+        });
+
+        const ctxSource = document.getElementById('sourceChart').getContext('2d');
+        const sourceChart = new Chart(ctxSource, {            // Initialises the Top Connection Horizontal Bar Chart
+            type: 'bar',
+            data: { labels: [], datasets: [{ label: 'Events', data: [], backgroundColor: '#ffc107' }] },
+            options: { indexAxis: 'y', responsive: true, scales: { x: { grid: { color: '#333' } }, y: { grid: { color: '#333' } } } }
+        });
+
+        const ctxProto = document.getElementById('protoChart').getContext('2d');
+        const protoChart = new Chart(ctxProto, {            // Initialises the Protocol Pie Chart
+            type: 'doughnut',
+            data: { labels: [], datasets: [{ data: [], backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#0dcaf0'] }] },
+            options: { responsive: true, aspectRatio: 1.5, plugins: { legend: { position: 'bottom' } } }
+        });
+// -------------------------------------------------------------
+//        User Accessibility: Light/Dark Theme Toggling
+// -------------------------------------------------------------
+        document.getElementById('theme-toggle').addEventListener('click', function() {
+        const htmlEl = document.documentElement;
+        const currentTheme = htmlEl.getAttribute('data-bs-theme');  // Detects current Bootstrap 5 theme state
+        const nav = document.querySelector('nav');
+        const tables = document.querySelectorAll('table');
+        const exportBtn = document.querySelector('button[onclick="exportCSV()"]');
+        const clock = document.getElementById('clock');
+    
+        if (currentTheme === 'dark') {
+            htmlEl.setAttribute('data-bs-theme', 'light');      // Swap to light mode
+            this.classList.replace('fa-sun', 'fa-moon');        // Swap FontAwesome Icon
+            this.classList.replace('text-light', 'text-dark');
+            
+            nav.classList.remove('navbar-dark', 'bg-dark');
+            nav.classList.add('navbar-light', 'bg-light');
+            tables.forEach(t => t.classList.remove('table-dark'));
+            exportBtn.classList.replace('btn-outline-light', 'btn-outline-dark');
+            clock.classList.replace('text-light', 'text-dark');
+        
+            // Update Chart.js text/grid colors for contrast
+            Chart.defaults.color = '#333';
+            [alertChart, sourceChart].forEach(chart => {
+                if (chart.options.scales.x) chart.options.scales.x.grid.color = '#ddd';
+                if (chart.options.scales.y) chart.options.scales.y.grid.color = '#ddd';
+            });
+        } else {
+            htmlEl.setAttribute('data-bs-theme', 'dark');       // Swap to dark mode
+            this.classList.replace('fa-moon', 'fa-sun');
+            this.classList.replace('text-dark', 'text-light');
+
+            nav.classList.remove('navbar-light', 'bg-light');
+            nav.classList.add('navbar-dark', 'bg-dark');
+            tables.forEach(t => t.classList.add('table-dark'));
+            exportBtn.classList.replace('btn-outline-dark', 'btn-outline-light');
+            clock.classList.replace('text-dark', 'text-light');
+        
+            // Revert charts to dark mode text/grid colours
+            Chart.defaults.color = '#e0e0e0';
+            [alertChart, sourceChart].forEach(chart => {
+                if (chart.options.scales.x) chart.options.scales.x.grid.color = '#333';
+                if (chart.options.scales.y) chart.options.scales.y.grid.color = '#333';
+            });
+        }
+    
+    // Force charts to re-render to match the new user preference
+    alertChart.update();
+    sourceChart.update();
+    protoChart.update();
+});
+// -------------------------------------------------------------
+// Data Formatting Helpers
+// -------------------------------------------------------------
+        function formatUptime(seconds) {    // Translates raw UNIX seconds into human-readable uptime
+            const d = Math.floor(seconds / (3600 * 24));
+            const h = Math.floor((seconds % (3600 * 24)) / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${d}d ${h}h ${m}m ${s}s`;
+        }
+
+        function formatDbTimestamp(timestamp) {     // Normalises SQLite timestamps to standard UK format
+        if (!timestamp) return "";
+        const parts = timestamp.split(' ');
+        if (parts.length !== 2) return timestamp;
+        const dateParts = parts[0].split('-');
+        if (dateParts.length !== 3) return timestamp;
+        return `${dateParts[2]}/${dateParts[1]}/${dateParts[0]} ${parts[1]}`; // DD/MM/YYYY HH:MM:SS
+    }
+
+    function updateClock() {                                                  // Provides live UI feedback of current date and time in the navbar, updating every second
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-GB');                      // Forces DD/MM/YYYY formatting 
+        const timeStr = now.toLocaleTimeString();
+        document.getElementById('clock').innerText = dateStr + ' ' + timeStr;
+    }
+    setInterval(updateClock, 1000);                                           // Ticks every 1 second
+
+
+        function escapeHtml(text) {                                           // Sanitises DB inputs to prevent Cross-Site Scripting (XSS) vulnerabilities when rendering untrusted data in the UI
+            if (text == null) return "";
+            return text
+                .toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")                                        // Neutralises malicious <script> tags injected via spoofed packets
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+// -------------------------------------------------------------
+// Table Rendering & Filtering
+// -------------------------------------------------------------
+        function renderAlertsTable() {                          // Dynamically injects threat logs into the DOM, applying client-side filtering based on user input in the search bar
+            const alertsBody = document.getElementById('alerts-body');
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();  // Captures user's live search filter input
+            alertsBody.innerHTML = '';
+
+            const filtered = allAlerts.filter(alert =>                                      // Applies client-side search logic across IPs and Descriptions
+                alert.src_ip.includes(searchTerm) || 
+                alert.dst_ip.includes(searchTerm) || 
+                alert.description.toLowerCase().includes(searchTerm)
+            );
+
+            filtered.forEach(alert => {                                                     // Dynamic Severity Badging logic
+                let badgeClass = 'bg-secondary';
+                if (alert.alert_type === 'Critical') badgeClass = 'badge-critical';         // Draws attention to high-risk threats with red badging, while lower severity events are visually de-emphasised with more neutral colours
+                else if (alert.alert_type === 'Warning') badgeClass = 'badge-warning';      // Highlights reconnaissance and suspicious activity with yellow badging, while investigative events are given a blue badge to indicate they require further analysis but may not be immediately dangerous
+                else if (alert.alert_type === 'Investigative') badgeClass = 'badge-investigative'; // Flags DoS volume anomalies and other events that may require further investigation with a distinctive cyan badge
+
+                const row = `
+                    <tr>
+                        <td><small>${formatDbTimestamp(alert.timestamp)}</small></td>                        
+                        <td>${escapeHtml(alert.src_ip)}</td>
+                        <td>${escapeHtml(alert.dst_ip)}</td>
+                        <td><span class="badge ${badgeClass}">${alert.alert_type}</span></td>
+                        <td><small>${escapeHtml(alert.description)}</small></td>
+                    </tr>
+                `;
+                alertsBody.innerHTML += row;                                                // Appends safely parsed data to the HTML view 
+            });
+        }
+// -------------------------------------------------------------
+// Incident Response Export
+// -------------------------------------------------------------
+        function exportCSV() {                                  // Generates a local CSV download for Forensic Incident Response, containing all currently loaded alerts (not just filtered view) to ensure analysts have access to the full dataset for offline analysis and sharing with other tools
+            const headers = ['Timestamp', 'Source IP', 'Destination IP', 'Protocol', 'Type', 'Description'];
+            const csvContent = "data:text/csv;charset=utf-8," 
+                + headers.join(",") + "\n" 
+                + allAlerts.map(e => `${e.timestamp},${e.src_ip},${e.dst_ip},${e.protocol},${e.alert_type},"${e.description}"`).join("\n");
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");           // Creates a hidden DOM link to force file download
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "nids_alerts.csv");
+            document.body.appendChild(link);
+            link.click();                                       // Triggers browser download
+            document.body.removeChild(link);                    // Cleans up DOM
+        }
+
+        document.getElementById('searchInput').addEventListener('keyup', renderAlertsTable); // Binds live search
+// -------------------------------------------------------------
+// CORE: Asynchronous Network Polling (AJAX) 
+// -------------------------------------------------------------
+// allowing the dashboard to update in real-time without ever reloading the page.
+// This function fetches data from the Flask API endpoints in the background,
+        async function fetchData() {
+            try {
+                // 1. Fetch Aggregated Statistics
+                const statsRes = await fetch('/api/stats');         // Polls Flask API for mathematical aggregations
+                const stats = await statsRes.json();                // Parses JSON payload
+
+                
+                document.getElementById('uptime').innerText = formatUptime(stats.uptime);   // Injects Uptime metric
+                document.getElementById('host-count').innerText = stats.host_count;         // Injects Asset Discovery metric
+                
+                // 2. Update Charts with fresh data
+                alertChart.data.labels = Object.keys(stats.types);                          // Updates Severity Chart
+                alertChart.data.datasets[0].data = Object.values(stats.types);
+                alertChart.update();                                                        // Instructs the canvas element to redraw the chart
+
+
+                sourceChart.data.labels = Object.keys(stats.top_sources);                   // Updates Top Attacker Chart
+                sourceChart.data.datasets[0].data = Object.values(stats.top_sources);
+                sourceChart.update();
+
+                protoChart.data.labels = Object.keys(stats.protocols);                      // Updates Protocol Distribution Pie Chart
+                protoChart.data.datasets[0].data = Object.values(stats.protocols);
+                protoChart.update();
+
+                const total = Object.values(stats.types).reduce((a, b) => a + b, 0);        // Sums total alerts mathematically rather than relying on potentially stale client-side array length,
+                document.getElementById('total-alerts').innerText = total;                  // ensuring the total count is always accurate even if the user has applied filters to the view
+
+                // 3. Fetch Alert Logs
+                const alertsRes = await fetch('/api/alerts');                               // Polls Flask API for the 50 latest threat events
+                allAlerts = await alertsRes.json();
+                renderAlertsTable();                                                        // Triggers function to redraw the Alerts Table with the new data, applying any active search filters
+
+                // 4. Fetch Connected Hosts (Asset Discovery)
+                const hostsRes = await fetch('/api/hosts');                                 // Polls Flask API for connected MAC/IP addresses
+                const hosts = await hostsRes.json();
+                const hostsBody = document.getElementById('hosts-body');
+                hostsBody.innerHTML = '';
+
+                hosts.forEach(host => {
+                    const row = `
+                        <tr>
+                            <td>${escapeHtml(host.ip)}</td>
+                            <td><small class="text-muted">${escapeHtml(host.mac)}</small></td>
+                            <td><small>${formatDbTimestamp(host.last_seen)}</small></td>
+                        </tr>
+                    `;
+                    hostsBody.innerHTML += row;                                            // Injects devices into the right-hand table
+                });
+
+            } catch (error) {
+                console.error('Error fetching data:', error);                              // Console fallback if the Flask API becomes unreachable
+            }
+        }
+
+        // Initial fetch and periodic update
+        fetchData();                                                                      // Triggers the initial fetch sequence immediately on page load
+        setInterval(fetchData, 3000);                                                     // Sets up a recurring fetch every 3 seconds to keep the dashboard data fresh without overwhelming the server or causing excessive network traffic
+    </script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
